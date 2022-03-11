@@ -4,18 +4,10 @@ from enum import Enum
 import pickle
 import socket
 import threading
-from typing import Any, Dict, Tuple
+from typing import Any, ByteString, Dict, List, Tuple
 import warnings
 
-class MessageType(Enum):
-    DEFAULT_MSG = 0
-    ADD_MESH_MSG = 1
-    ADD_PRIMITIVE_MSG = 2
-    SET_PARTICLE_MSG = 3
-    UPDATE_MESH_POSE = 4
-    UPDATE_PRIMITIVE_POSE = 5
-    UPDATE_FRAME = 6
-    RESPONSE = 7
+import numpy as np
 
 
 class BaseMessage(ABC):
@@ -25,31 +17,23 @@ class BaseMessage(ABC):
     _message_cnt = 1
     _cnt_lock = threading.RLock()
     ip = 'localhost'
-    port = '4490'
+    port = 4490
     def __init__(self) -> None:
         """ The super.init will assign a global
         unique id to each message.
         """
         self.message_idx = 0
         self.set_idx_and_increment_cnt()
-        self.client = None
-        """IPv4 TCP socket"""
-
-    @abstractproperty
-    def type(self) -> MessageType:
-        """ type of this message
-        """
-        return MessageType.DEFAULT_MSG
 
     def set_idx_and_increment_cnt(self) -> None:
         """ generate a global unique id for this message
         """
-        self._cnt_lock.acquire()
+        BaseMessage._cnt_lock.acquire()
         try:
             self.message_idx = self._message_cnt
-            self._message_cnt += 1
+            BaseMessage._message_cnt += 1
         finally:
-            self._cnt_lock.release
+            BaseMessage._cnt_lock.release
 
     def _prepare_connection(self) -> socket.socket:
         """ Establish a Ipv4 TCP connection to the server
@@ -58,8 +42,9 @@ class BaseMessage(ABC):
         ------
         the socket connection
         """
-        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.connect((self.ip, self.port))
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.connect((self.ip, self.port))
+        return client
 
     def send(self, retry_times = 0):
         """ Send the message
@@ -77,15 +62,13 @@ class BaseMessage(ABC):
         retry_times: retry times, if this parameter >= 2, no
             retry if the sending fails
         """
-        if self.client == None:
-            self._prepare_connection()
+        client = self._prepare_connection()
         
         # send & receive
         bin_data = pickle.dumps(self)
-        self.client.sendall(bin_data)
-        bstr = self.client.recv(1024)
+        client.sendall(bin_data)
+        bstr = client.recv(1024)
         response = pickle.loads(bstr)
-
         # error handling
         if not isinstance(response, ResponseMessage):
             error_reason = "corrupted response"
@@ -95,16 +78,23 @@ class BaseMessage(ABC):
             error_reason = response.err_msg
 
         if len(error_reason) == 0:
-            self.client.close()
+            # succeed
+            client.close()
+        
         elif retry_times < 3:
+            # failed, re-try 
             warnings.warn(f"message {self.message_idx} of type {self.type} failed because " + \
                 error_reason + ". Retrying.")
+            client.close()
             self.send(retry_times + 1) # retry
-        elif self.type == MessageType.ADD_MESH_MSG or self.type == MessageType.ADD_PRIMITIVE_MSG:
-            self.client.close()
+        
+        # fail for 3 times: 
+        elif isinstance(self, AddRigidBodyMeshMessage) or \
+            isinstance(self, AddRigidBodyPrimitiveMessage):
+            client.close()
             raise "critical message failed to be sent, because " + error_reason
         else:
-            self.client.close()
+            client.close()
             warnings.warn(f"message {self.message_idx} of type {self.type} failed again because " + \
                 error_reason + ". Won't retry")
 
@@ -129,6 +119,7 @@ class BaseMessage(ABC):
             else:
                 err = f"what is received is not a BaseMessage, but a {type(msg)}"
         except pickle.UnpicklingError as e:
+            msg = None
             err = str(e)
         return msg, err
         
@@ -143,9 +134,6 @@ class ResponseMessage(BaseMessage):
     def __init__(self, message_idx: int, err_msg: str) -> None:
         self.message_idx = message_idx
         self.err_msg = err_msg
-    
-    def type(self) -> MessageType:
-        return MessageType.RESPONSE
 
 class AddRigidBodyMeshMessage(BaseMessage):
     """
@@ -155,15 +143,52 @@ class AddRigidBodyMeshMessage(BaseMessage):
     mesh_file: the content of the mesh file
     init_pose: an 4-by-4 np.ndarray, describing the initial pose of the mesh
     """
-    def __init__(self, mesh_name: str, mesh_file, init_pose) -> None:
+    def __init__(self, mesh_name: str, mesh_file:ByteString, init_pose: np.ndarray) -> None:
         super().__init__()
         self.mesh_name = mesh_name
-        self.mesh_file = mesh_file
         self.init_pose = init_pose
 
-    def type(self) -> MessageType:
-        return MessageType.ADD_MESH_MSG
+        self.chunks = []
+        self._split_file_content_to_chunks(mesh_file)
+        self.chunk_num = len(self.chunks)
 
+    CHUNK_SIZE = 61440 # 60KB
+    class Chunk(BaseMessage):
+        def __init__(self, mesh_name:str, chunk_id: int, chunk) -> None:
+            super().__init__()
+            self.mesh_name = mesh_name
+            self.chunk_id = chunk_id
+            self.chunk = chunk
+
+
+    def _split_file_content_to_chunks(self, bstr: ByteString) -> List[Chunk]:
+        sent_size = 0
+        chunks = []
+        total_size = len(bstr)
+        while sent_size < total_size:
+            self.chunks.append(self.Chunk(
+                self.mesh_name,
+                len(chunks),
+                bstr[sent_size: min(sent_size + AddRigidBodyMeshMessage.CHUNK_SIZE, total_size)]
+            ))
+            sent_size = min(sent_size + AddRigidBodyMeshMessage.CHUNK_SIZE, total_size)
+
+    def send(self, retry_times=0):
+        chunks = self.chunks
+        self.chunks = []
+        super().send(retry_times)
+        
+        for chunk in chunks:
+            chunk.send(retry_times)
+        self.chunks = chunks
+
+    @property
+    def mesh_file(self) -> ByteString:
+        bstr = b''
+        for chunk in self.chunks:
+            bstr += chunk.chunk
+        return bstr
+    
 
 class AddRigidBodyPrimitiveMessage(BaseMessage):
     def __init__(self, primitive_name:str, typename_in_bpy: str, params: Dict[str, Any]) -> None:
@@ -184,16 +209,12 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
         """
         return eval(self.primitive_type)(**self.params)
 
-    def type(self) -> MessageType:
-        return MessageType.ADD_PRIMITIVE_MSG
 
 class SetParticlesMessage(BaseMessage):
     def __init__(self) -> None:
         #TODO
         super().__init__()
-    
-    def type(self) -> MessageType:
-        return MessageType.SET_PARTICLE_MSG
+
 
 class UpdateRigidBodyMeshPoseMessage(BaseMessage):
     """
@@ -208,9 +229,7 @@ class UpdateRigidBodyMeshPoseMessage(BaseMessage):
             f"the pose of a mesh is expected to be a (4, 4) matrix, but got a {pose.shape}"
         self.mesh_name = mesh_name
         self.pose_mat = pose
-    
-    def type(self) -> MessageType:
-        return MessageType.UPDATE_MESH_POSE
+
 
 class UpdateRigidBodyPrimitiveMessage(BaseMessage):
     """
@@ -224,8 +243,6 @@ class UpdateRigidBodyPrimitiveMessage(BaseMessage):
         self.primitive_name = primitive_name
         self.xyz_quat = xyz_quat
 
-    def type(self) -> MessageType:
-        return MessageType.UPDATE_PRIMITIVE_POSE
 
 class UpdateFrameMessage(BaseMessage):
     """ Mark a frame. For example, 
@@ -247,7 +264,5 @@ class UpdateFrameMessage(BaseMessage):
     def __init__(self, fidx: int) -> None:
         super().__init__()
         self.frame_idx = fidx
-    
-    def type(self) -> MessageType:
-        return MessageType.UPDATE_FRAME
+
 
