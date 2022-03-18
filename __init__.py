@@ -1,10 +1,10 @@
 from .message import (
     BaseMessage,
     UpdateFrameMessage,
+    SetParticlesMessage,
     AddRigidBodyMeshMessage,
     AddRigidBodyPrimitiveMessage,
-    UpdateRigidBodyMeshPoseMessage,
-    UpdateRigidBodyPrimitiveMessage
+    UpdateRigidBodyPoseMessage
 )
 from .server_util import (
     AsyncServer
@@ -13,9 +13,9 @@ from .server_util import (
 __all__ = [
     'BaseMessage',
     'UpdateFrameMessage',
+    'SetParticlesMessage',
     'AddRigidBodyMeshMessage',
     'AddRigidBodyPrimitiveMessage',
-    'UpdateRigidBodyMeshPoseMessage',
-    'UpdateRigidBodyPrimitiveMessage',
+    'UpdateRigidBodyPoseMessage',
     'AsyncServer'
 ]

@@ -1,6 +1,6 @@
 
-from abc import ABC, abstractproperty
-from enum import Enum
+from abc import ABC
+from ctypes import Union
 import pickle
 import socket
 import threading
@@ -211,37 +211,27 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
 
 
 class SetParticlesMessage(BaseMessage):
-    def __init__(self) -> None:
+    def __init__(self, frame_idx) -> None:
         #TODO
         super().__init__()
+        self.frame_idx = frame_idx
 
 
-class UpdateRigidBodyMeshPoseMessage(BaseMessage):
+class UpdateRigidBodyPoseMessage(BaseMessage):
     """
     Params
     ------
-    mesh_name: which mesh should be updated
-    pose: the new pose matrix
+    name: identifier of the rigid-body object to be updated
+    pose: the new pose vector of dim 7
+    frame_idx: the frame idx at which the update is in effect
     """
-    def __init__(self, mesh_name: str, pose) -> None:
+    def __init__(self, name: str, pose: Union[np.ndarray, List[float]], frame_idx: int) -> None:
         super().__init__()
         assert pose.shape == (4, 4), \
             f"the pose of a mesh is expected to be a (4, 4) matrix, but got a {pose.shape}"
-        self.mesh_name = mesh_name
-        self.pose_mat = pose
-
-
-class UpdateRigidBodyPrimitiveMessage(BaseMessage):
-    """
-    Params
-    ------
-    primitive_name: which primitive should be updated
-    xyz_quat: the 7-dim describer to determine the new pose
-    """
-    def __init__(self, primitive_name: str, xyz_quat) -> None:
-        super().__init__()
-        self.primitive_name = primitive_name
-        self.xyz_quat = xyz_quat
+        self.name = name
+        self.pose_vec = pose
+        self.frame_idx = frame_idx
 
 
 class UpdateFrameMessage(BaseMessage):
