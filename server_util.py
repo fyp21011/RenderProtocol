@@ -3,7 +3,7 @@ from datetime import datetime
 import pickle
 from typing import Callable
 
-from protocol import BaseMessage, ResponseMessage, AddRigidBodyMeshMessage
+from .message import BaseMessage, ResponseMessage, AddRigidBodyMeshMessage
 
 class AddMeshMessageHandler:
     """ A middleware to merge chunks into its AddRigidBodyMeshMessage

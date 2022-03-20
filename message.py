@@ -4,7 +4,7 @@ from ctypes import Union
 import pickle
 import socket
 import threading
-from typing import Any, ByteString, Dict, List, Tuple
+from typing import Any, ByteString, List, Tuple
 import warnings
 
 import numpy as np
@@ -122,7 +122,7 @@ class BaseMessage(ABC):
             msg = None
             err = str(e)
         return msg, err
-        
+       
 
 class ResponseMessage(BaseMessage):
     """
@@ -189,9 +189,8 @@ class AddRigidBodyMeshMessage(BaseMessage):
             bstr += chunk.chunk
         return bstr
     
-
 class AddRigidBodyPrimitiveMessage(BaseMessage):
-    def __init__(self, primitive_name:str, typename_in_bpy: str, params: Dict[str, Any]) -> None:
+    def __init__(self, primitive_name:str, typename_in_bpy: str, **params: Any) -> None:
         """
         Params
         ------
@@ -209,13 +208,13 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
         """
         return eval(self.primitive_type)(**self.params)
 
-
 class SetParticlesMessage(BaseMessage):
-    def __init__(self, frame_idx) -> None:
+    def __init__(self, particles: np.ndarray, name: str, frame_idx: int) -> None:
         #TODO
         super().__init__()
+        self.particles = particles
+        self.obj_name  = name
         self.frame_idx = frame_idx
-
 
 class UpdateRigidBodyPoseMessage(BaseMessage):
     """
@@ -227,32 +226,9 @@ class UpdateRigidBodyPoseMessage(BaseMessage):
     """
     def __init__(self, name: str, pose: Union[np.ndarray, List[float]], frame_idx: int) -> None:
         super().__init__()
-        assert pose.shape == (4, 4), \
-            f"the pose of a mesh is expected to be a (4, 4) matrix, but got a {pose.shape}"
+        assert len(pose) == 7, \
+            f"the pose of a mesh is expected to be a 7-dim vector, but got a {pose}"
         self.name = name
         self.pose_vec = pose
         self.frame_idx = frame_idx
-
-
-class UpdateFrameMessage(BaseMessage):
-    """ Mark a frame. For example, 
-    ```
-    [10] UpdateFrameMessage(24)
-    [11] UpdateRigidBody...
-    [12] UpdateRigidBody...
-    [13] SetParticlesMessage...
-    [14] UpdateFrameMessage(25)
-    ```
-    The message [11], [12], [13] all apply changes to the
-    frame 25. The messages after message [14] or before
-    message [10] have no effect on the frame 25.  
-
-    Params
-    ------
-    fidx: frame idx
-    """
-    def __init__(self, fidx: int) -> None:
-        super().__init__()
-        self.frame_idx = fidx
-
 
