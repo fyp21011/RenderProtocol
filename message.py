@@ -1,10 +1,9 @@
 
 from abc import ABC
-from ctypes import Union
 import pickle
 import socket
 import threading
-from typing import Any, ByteString, List, Tuple
+from typing import Any, ByteString, List, Tuple, Union
 import warnings
 
 import numpy as np
@@ -33,7 +32,7 @@ class BaseMessage(ABC):
             self.message_idx = self._message_cnt
             BaseMessage._message_cnt += 1
         finally:
-            BaseMessage._cnt_lock.release
+            BaseMessage._cnt_lock.release()
 
     def _prepare_connection(self) -> socket.socket:
         """ Establish a Ipv4 TCP connection to the server
@@ -209,12 +208,33 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
         return eval(self.primitive_type)(**self.params)
 
 class SetParticlesMessage(BaseMessage):
+    _prev_frame_idx = None
+    _frame_lock = threading.RLock()
     def __init__(self, particles: np.ndarray, name: str, frame_idx: int) -> None:
-        #TODO
+        """ Set a point cloud
+
+        Params
+        ------
+        particles: the surface particle of the point cloud
+        name: the name of the object simulated by this point cloud
+        frame_idx: the frame index
+        """
         super().__init__()
         self.particles = particles
         self.obj_name  = name
         self.frame_idx = frame_idx
+        self.prev_frame_idx = None
+        self.update_frame_index()
+
+    def update_frame_index(self) -> None:
+        """ generate a global unique id for this message
+        """
+        SetParticlesMessage._frame_lock.acquire()
+        try:
+            self.prev_frame_idx = SetParticlesMessage._prev_frame_idx
+            SetParticlesMessage._prev_frame_idx = self.frame_idx
+        finally:
+            SetParticlesMessage._frame_lock.release()
 
 class UpdateRigidBodyPoseMessage(BaseMessage):
     """

@@ -1,6 +1,5 @@
 from .message import (
     BaseMessage,
-    UpdateFrameMessage,
     SetParticlesMessage,
     AddRigidBodyMeshMessage,
     AddRigidBodyPrimitiveMessage,
@@ -12,7 +11,6 @@ from .server_util import (
 
 __all__ = [
     'BaseMessage',
-    'UpdateFrameMessage',
     'SetParticlesMessage',
     'AddRigidBodyMeshMessage',
     'AddRigidBodyPrimitiveMessage',
