@@ -3,10 +3,13 @@ from .message import (
     SetParticlesMessage,
     AddRigidBodyMeshMessage,
     AddRigidBodyPrimitiveMessage,
-    UpdateRigidBodyPoseMessage
+    UpdateRigidBodyPoseMessage,
+    FinishAnimationMessage,
 )
 from .server_util import (
-    AsyncServer
+    AsyncServer,
+    AddMeshMessageHandler, 
+    SetParticleMessageHandler,
 )
 
 __all__ = [
@@ -15,5 +18,8 @@ __all__ = [
     'AddRigidBodyMeshMessage',
     'AddRigidBodyPrimitiveMessage',
     'UpdateRigidBodyPoseMessage',
-    'AsyncServer'
+    'AsyncServer',
+    'FinishAnimationMessage',
+    'AddMeshMessageHandler',
+    'SetParticleMessageHandler'
 ]

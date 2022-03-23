@@ -2,8 +2,11 @@ import asyncio
 from datetime import datetime
 import pickle
 from typing import Callable
+import numpy as np
 
-from .message import BaseMessage, ResponseMessage, AddRigidBodyMeshMessage
+import open3d as o3d
+
+from .message import BaseMessage, ResponseMessage, AddRigidBodyMeshMessage, SetParticlesMessage
 
 class AddMeshMessageHandler:
     """ A middleware to merge chunks into its AddRigidBodyMeshMessage
@@ -36,6 +39,26 @@ class AddMeshMessageHandler:
         else:
             self.handler(msg)
 
+class SetParticleMessageHandler:
+    """ A middleware to re-construce the surface from particles
+
+    Params
+    ------
+    next_handler: the method to deal with the message AFTER
+        the middleware completes
+    """
+    def __init__(self, next_handler: Callable[[BaseMessage], None]) -> None:
+        self.handler = next_handler
+
+    def __call__(self, msg: BaseMessage):
+        if isinstance(msg, SetParticlesMessage):
+            vertices = o3d.utility.Vector3dVector(msg.particles.reshape((-1, 3)))
+            point_cloud = o3d.geometry.PointCloud(vertices)
+            meshes = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(point_cloud, 0.8)
+            msg.particles = np.asarray(meshes.vertices)
+            msg.faces = np.asarray(meshes.triangles)
+        self.handler(msg)
+
 class AsyncServer:
     """ An async server
     Params
@@ -48,6 +71,7 @@ class AsyncServer:
     """
     def __init__(self, message_handler: Callable[[BaseMessage], None], logger:Callable[[str], None] = None) -> None:
         self.message_handler = AddMeshMessageHandler(message_handler)
+        self.message_handler = SetParticleMessageHandler(self.message_handler)
         self.logger = logger if logger else (lambda s: print('[DEBUG]', datetime.now(), s))
 
     async def _handle_incoming_request(self, reader: asyncio.StreamReader, writer):
@@ -73,6 +97,8 @@ class AsyncServer:
         self.logger(f"No.{request.message_idx if request != None else 'Unknow'} message is decoded with error: {err}, preparing response")
         if request != None:
             response = ResponseMessage(request.message_idx, err)
+        else:
+            response = ResponseMessage(0, err)
         writer.write(pickle.dumps(response))
         await writer.drain()
         self.logger(f"No.{request.message_idx if request != None else 'Unknow'} message's response has been sent")

@@ -82,7 +82,7 @@ class BaseMessage(ABC):
         
         elif retry_times < 3:
             # failed, re-try 
-            warnings.warn(f"message {self.message_idx} of type {self.type} failed because " + \
+            warnings.warn(f"message {self.message_idx} of type {type(self)} failed because " + \
                 error_reason + ". Retrying.")
             client.close()
             self.send(retry_times + 1) # retry
@@ -91,10 +91,10 @@ class BaseMessage(ABC):
         elif isinstance(self, AddRigidBodyMeshMessage) or \
             isinstance(self, AddRigidBodyPrimitiveMessage):
             client.close()
-            raise "critical message failed to be sent, because " + error_reason
+            raise Exception("critical message failed to be sent, because " + error_reason)
         else:
             client.close()
-            warnings.warn(f"message {self.message_idx} of type {self.type} failed again because " + \
+            warnings.warn(f"message {self.message_idx} of type {type(self)} failed again because " + \
                 error_reason + ". Won't retry")
 
     @classmethod
@@ -113,7 +113,7 @@ class BaseMessage(ABC):
         """
         try:
             msg = pickle.loads(bstring)
-            if isinstance(msg, BaseMessage) and hasattr(msg, 'type'):
+            if isinstance(msg, BaseMessage):
                 err = ""
             else:
                 err = f"what is received is not a BaseMessage, but a {type(msg)}"
@@ -225,6 +225,7 @@ class SetParticlesMessage(BaseMessage):
         self.frame_idx = frame_idx
         self.prev_frame_idx = None
         self.update_frame_index()
+        self.faces: np.ndarray = None
 
     def update_frame_index(self) -> None:
         """ generate a global unique id for this message
@@ -252,3 +253,8 @@ class UpdateRigidBodyPoseMessage(BaseMessage):
         self.pose_vec = pose
         self.frame_idx = frame_idx
 
+class FinishAnimationMessage(BaseMessage):
+    def __init__(self, exp_name: str, end_frame_idx: int) -> None:
+        super().__init__()
+        self.end_frame_idx = end_frame_idx
+        self.exp_name = exp_name
