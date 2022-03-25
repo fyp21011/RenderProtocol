@@ -1,25 +1,23 @@
 from .message import (
     BaseMessage,
-    SetParticlesMessage,
-    AddRigidBodyMeshMessage,
+    PointCloudMessage,
+    MeshesMessage,
     AddRigidBodyPrimitiveMessage,
     UpdateRigidBodyPoseMessage,
     FinishAnimationMessage,
 )
 from .server_util import (
     AsyncServer,
-    AddMeshMessageHandler, 
-    SetParticleMessageHandler,
+    MeshChunksHandler
 )
 
 __all__ = [
     'BaseMessage',
-    'SetParticlesMessage',
-    'AddRigidBodyMeshMessage',
+    'PointCloudMessage',
+    'MeshesMessage',
     'AddRigidBodyPrimitiveMessage',
     'UpdateRigidBodyPoseMessage',
     'AsyncServer',
     'FinishAnimationMessage',
-    'AddMeshMessageHandler',
-    'SetParticleMessageHandler'
+    'MeshChunksHandler'
 ]

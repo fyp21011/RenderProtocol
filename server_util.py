@@ -1,15 +1,16 @@
 import asyncio
+from chunk import Chunk
 from datetime import datetime
 import pickle
-from typing import Callable
+from typing import Callable, Dict
 import numpy as np
 
 import open3d as o3d
 
-from .message import BaseMessage, ResponseMessage, AddRigidBodyMeshMessage, SetParticlesMessage
+from .message import BaseMessage, ResponseMessage, MeshesMessage, PointCloudMessage
 
-class AddMeshMessageHandler:
-    """ A middleware to merge chunks into its AddRigidBodyMeshMessage
+class MeshChunksHandler:
+    """ A middleware to merge chunks into its MeshesMessage
 
     Params
     ------
@@ -17,47 +18,37 @@ class AddMeshMessageHandler:
         received AddRigidBodyMeshMessage, or other messages 
     """
     def __init__(self, next_handler: Callable[[BaseMessage], None]):
-        self.mesh_name_2_msg = {}
-        self.mesh_name_2_chunks = {}
+        self.mesh_name_2_msg:    Dict[str, MeshesMessage] = {}
+        self.mesh_name_2_chunks: Dict[str, Chunk] = {}
         self.handler = next_handler
     
     def __call__(self, msg: BaseMessage):
-        if isinstance(msg, AddRigidBodyMeshMessage):
+        if isinstance(msg, MeshesMessage):
             self.mesh_name_2_msg[msg.mesh_name] = msg
-        elif isinstance(msg, AddRigidBodyMeshMessage.Chunk):
+        elif isinstance(msg, MeshesMessage.Chunk):
             name = msg.mesh_name
             if name not in self.mesh_name_2_chunks:
                 self.mesh_name_2_chunks[name] = [msg]
             else:
                 self.mesh_name_2_chunks[name].append(msg)
+            # check whether all the chunks has been collected
             if name in self.mesh_name_2_msg and \
                 len(self.mesh_name_2_chunks[name]) == self.mesh_name_2_msg[name].chunk_num:
                 self.mesh_name_2_chunks[name].sort(key = lambda x: x.chunk_id)
+                meshmsg = self.mesh_name_2_msg[name]
                 for chunk in self.mesh_name_2_chunks[name]:
-                    msg.chunks.append(chunk)
-                self.handler(msg)
+                    meshmsg.chunks.append(chunk)
+                del self.mesh_name_2_chunks[name]
+                del self.mesh_name_2_msg[name]
+                if name.startswith("MPM::MESHES::"):
+                    # a open3d re-constructed meshes from point cloud
+                    pcdMessage: PointCloudMessage = pickle.loads(meshmsg.mesh_file)
+                    self.handler(pcdMessage)
+                else:
+                    # a nomal meshes
+                    self.handler(meshmsg)
         else:
             self.handler(msg)
-
-class SetParticleMessageHandler:
-    """ A middleware to re-construce the surface from particles
-
-    Params
-    ------
-    next_handler: the method to deal with the message AFTER
-        the middleware completes
-    """
-    def __init__(self, next_handler: Callable[[BaseMessage], None]) -> None:
-        self.handler = next_handler
-
-    def __call__(self, msg: BaseMessage):
-        if isinstance(msg, SetParticlesMessage):
-            vertices = o3d.utility.Vector3dVector(msg.particles.reshape((-1, 3)))
-            point_cloud = o3d.geometry.PointCloud(vertices)
-            meshes = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(point_cloud, 0.8)
-            msg.particles = np.asarray(meshes.vertices)
-            msg.faces = np.asarray(meshes.triangles)
-        self.handler(msg)
 
 class AsyncServer:
     """ An async server
@@ -70,8 +61,7 @@ class AsyncServer:
     one AddMeshMessageHandler
     """
     def __init__(self, message_handler: Callable[[BaseMessage], None], logger:Callable[[str], None] = None) -> None:
-        self.message_handler = AddMeshMessageHandler(message_handler)
-        self.message_handler = SetParticleMessageHandler(self.message_handler)
+        self.message_handler = MeshChunksHandler(message_handler)
         self.logger = logger if logger else (lambda s: print('[DEBUG]', datetime.now(), s))
 
     async def _handle_incoming_request(self, reader: asyncio.StreamReader, writer):
@@ -94,7 +84,7 @@ class AsyncServer:
         
         self.logger(f"{len(bstr)} bytes are read")
         request, err = BaseMessage.unpack(bstr)
-        self.logger(f"No.{request.message_idx if request != None else 'Unknow'} message is decoded with error: {err}, preparing response")
+        self.logger(f"No.{request.message_idx if request != None else 'Unknow'} message of type {type(request)} is decoded with error: {err}, preparing response")
         if request != None:
             response = ResponseMessage(request.message_idx, err)
         else:

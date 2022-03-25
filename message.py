@@ -7,6 +7,7 @@ from typing import Any, ByteString, List, Tuple, Union
 import warnings
 
 import numpy as np
+import open3d as o3d
 
 
 class BaseMessage(ABC):
@@ -88,7 +89,7 @@ class BaseMessage(ABC):
             self.send(retry_times + 1) # retry
         
         # fail for 3 times: 
-        elif isinstance(self, AddRigidBodyMeshMessage) or \
+        elif isinstance(self, MeshesMessage) or \
             isinstance(self, AddRigidBodyPrimitiveMessage):
             client.close()
             raise Exception("critical message failed to be sent, because " + error_reason)
@@ -134,7 +135,7 @@ class ResponseMessage(BaseMessage):
         self.message_idx = message_idx
         self.err_msg = err_msg
 
-class AddRigidBodyMeshMessage(BaseMessage):
+class MeshesMessage(BaseMessage):
     """
     Params
     ------
@@ -168,9 +169,9 @@ class AddRigidBodyMeshMessage(BaseMessage):
             self.chunks.append(self.Chunk(
                 self.mesh_name,
                 len(chunks),
-                bstr[sent_size: min(sent_size + AddRigidBodyMeshMessage.CHUNK_SIZE, total_size)]
+                bstr[sent_size: min(sent_size + MeshesMessage.CHUNK_SIZE, total_size)]
             ))
-            sent_size = min(sent_size + AddRigidBodyMeshMessage.CHUNK_SIZE, total_size)
+            sent_size = min(sent_size + MeshesMessage.CHUNK_SIZE, total_size)
 
     def send(self, retry_times=0):
         chunks = self.chunks
@@ -207,7 +208,7 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
         """
         return eval(self.primitive_type)(**self.params)
 
-class SetParticlesMessage(BaseMessage):
+class PointCloudMessage(BaseMessage):
     _prev_frame_idx = None
     _frame_lock = threading.RLock()
     def __init__(self, particles: np.ndarray, name: str, frame_idx: int) -> None:
@@ -220,22 +221,47 @@ class SetParticlesMessage(BaseMessage):
         frame_idx: the frame index
         """
         super().__init__()
-        self.particles = particles
         self.obj_name  = name
         self.frame_idx = frame_idx
         self.prev_frame_idx = None
         self.update_frame_index()
-        self.faces: np.ndarray = None
+        # build meshes from the particles
+        meshes = self.face_reconstruction(particles)
+        np_particles = np.asarray(meshes.vertices)
+        np_faces = np.asarray(meshes.triangles)
+        self.particles = [np_particles[i, :] for i in range(np_particles.shape[0])]
+        self.faces = [np_faces[i, :] for i in range(np_faces.shape[0])]
+
 
     def update_frame_index(self) -> None:
         """ generate a global unique id for this message
         """
-        SetParticlesMessage._frame_lock.acquire()
+        PointCloudMessage._frame_lock.acquire()
         try:
-            self.prev_frame_idx = SetParticlesMessage._prev_frame_idx
-            SetParticlesMessage._prev_frame_idx = self.frame_idx
+            self.prev_frame_idx = PointCloudMessage._prev_frame_idx
+            PointCloudMessage._prev_frame_idx = self.frame_idx
         finally:
-            SetParticlesMessage._frame_lock.release()
+            PointCloudMessage._frame_lock.release()
+    
+    @staticmethod
+    def face_reconstruction(pcd: np.ndarray) -> o3d.geometry.TriangleMesh:
+        # step 1: build a o3d pcd
+        vertices = o3d.utility.Vector3dVector(pcd.reshape((-1, 3)))
+        point_cloud = o3d.geometry.PointCloud(vertices)
+        point_cloud.estimate_normals()
+        # step 2: average the distance to get the radius
+        distances = point_cloud.compute_nearest_neighbor_distance()
+        radius = np.mean(distances) * 1.5
+        meshes = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+            point_cloud, 
+            o3d.utility.DoubleVector([radius, radius * 2])
+        )
+        return meshes
+
+
+    def send(self, retry_times=0):
+        wrap_msg = MeshesMessage(f"MPM::MESHES::{self.obj_name}::{self.frame_idx}", pickle.dumps(self), None)
+        return wrap_msg.send(retry_times)
 
 class UpdateRigidBodyPoseMessage(BaseMessage):
     """
