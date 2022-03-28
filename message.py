@@ -211,9 +211,9 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
 class DeformableMeshesMessage(BaseMessage):
     """
     It is DEPRECATED to directly initialize a 
-    DeformableMeshesMessage. An advisable way is to rely on the
-    DeformableMeshesMessage.Factory class to generate the meshes
-    from either pointcloud or sdf values.
+    DeformableMeshesMessage. An advisable way is to rely on
+    the DeformableMeshesMessage.Factory class to generate
+    the meshes from either pointcloud or sdf values.
 
     Params
     ------
