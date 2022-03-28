@@ -43,13 +43,13 @@ For each `MeshesMessage.Chunk`, the following fields are contained:
 * chunk_id: the index of this chunk among all the chunks splited from the original meshes file
 * chunk: the content, a part of the original meshes file
 
-### PointCloudMessage
+### DeformableMeshesMessage
 
-The message contains a meshes **created from a point cloud**. Thus, when it is sent, it will be wrapped into a [`MeshesMessage`](#meshesmessage) object. 
+The message contains a meshes **created from a point cloud or SDF values**. Thus, when it is sent, it will be wrapped into a [`MeshesMessage`](#meshesmessage) object. 
 
-此消息包含了一个从点云重构的meshes对象。因此，当它被sent的时候，会被包装成一个[`MeshesMessage`](#meshesmessage)对象。
+此消息包含了一个从点云或者SDF值重构的meshes对象。因此，当它被sent的时候，会被包装成一个[`MeshesMessage`](#meshesmessage)对象。
 
-A `PointCloudMessage` contains the following fields: 
+A `DeformableMeshesMessage` contains the following fields: 
 
 * `obj_name`: the name of the meshes created from this point cloud
 * `frame_idx`: frame index of the meshes to appear
@@ -58,7 +58,7 @@ A `PointCloudMessage` contains the following fields:
 
 _You may note that for the [`MeshesMessage`](#meshesmessage), no `frame_idx` field is specified. This is because as for the objected created from meshes files, it is always regarded as the rigid-bodies, whose shape will not changed. Thus, to save the communication brandwidth, we split the **initialization** or **pose updating** into two message types. The message for updating a rigid-body object's meshes is called [`UpdateRigidBodyPoseMessage`](#updaterigidbodyposemessage)_
 
-_你可能会注意到，[`MeshesMessage`](#meshesmessage)中没有`frame_idx`成员。这是因为只有从点云重构的meshes才会被视作可形变（Deformable）物体，`*.DAE`或者`*.STL`等等格式描述的meshes则会被视作刚体。因此，对于每个frame来说，一个刚体的[`MeshesMessage`](#meshesmessage)对象之间差别只有pose不同，meshes的内容是完全一致的。为了节省带宽，我们在设计时，区分了刚体的**创建**和**姿态更新**，后者使用下面的[`UpdateRigidBodyPoseMessage`](#updaterigidbodyposemessage)处理。_
+_你可能会注意到，[`MeshesMessage`](#meshesmessage)中没有`frame_idx`成员。这是因为只有从点云或SDF值重构的meshes才会被视作可形变（Deformable）物体，`*.DAE`或者`*.STL`等等格式描述的meshes则会被视作刚体。因此，对于每个frame来说，一个刚体的[`MeshesMessage`](#meshesmessage)对象之间差别只有pose不同，meshes的内容是完全一致的。为了节省带宽，我们在设计时，区分了刚体的**创建**和**姿态更新**，后者使用下面的[`UpdateRigidBodyPoseMessage`](#updaterigidbodyposemessage)处理。_
 
 _For more details on keyframe animation, you may refer to the [Animation](#animation) section._
 
@@ -115,9 +115,9 @@ Keyframe animation is adopted. One message is sent to update one object in one c
 
 ### Animation for deformable objects
 
-As for deformable objects, for each frame, the meshes that describing the object surface can be different. Thus, the meshes (vertices and faces) shall be sent for every keyframe. Hence, the intialization and the pose updating are exactly the same, both using the [`PointCloudMessage`](#pointcloudmessage) with the only difference is the frame index. To initialize a deformable object, the frame index in a [`PointCloudMessage`](#pointcloudmessage) is **0**. As for the pose updating scenario, the frame index is the index of the keyframe. 
+As for deformable objects, for each frame, the meshes that describing the object surface can be different. Thus, the meshes (vertices and faces) shall be sent for every keyframe. Hence, the intialization and the pose updating are exactly the same, both using the [`DeformableMeshesMessage`](#deformablemeshesmessage) with the only difference is the frame index. To initialize a deformable object, the frame index in a [`DeformableMeshesMessage`](#deformablemeshesmessage) is **0**. As for the pose updating scenario, the frame index is the index of the keyframe. 
 
-对于可形变物体，每一帧它们的meshes描述（顶点、面等）可能都会不一样。因此，每一帧的消息中都必定包含meshes信息。所以，对于可形变物体而言，最初物体的创建和关键帧姿态的更新几乎没有区别，都使用了[`PointCloudMessage`](#pointcloudmessage)；而唯一的区别只是frame index。对于创建物体来说，frame index应当设置为**0**，而姿态更新的frame index则是关键帧的序号。
+对于可形变物体，每一帧它们的meshes描述（顶点、面等）可能都会不一样。因此，每一帧的消息中都必定包含meshes信息。所以，对于可形变物体而言，最初物体的创建和关键帧姿态的更新几乎没有区别，都使用了[`DeformableMeshesMessage`](#deformablemeshesmessage)；而唯一的区别只是frame index。对于创建物体来说，frame index应当设置为**0**，而姿态更新的frame index则是关键帧的序号。
 
 ### Animation for rigid-body objects
 
@@ -153,7 +153,7 @@ def message_handler(message: BaseMessage) -> None:
     if type(message) == MeshesMessage: 
         # add the meshes to the renderer
         pass
-    elif type(messasge) == PointCloudMessage:
+    elif type(messasge) == DeformableMeshesMessage:
         # add or update the meshes re-constructed from the pointcloud
         pass
     ...
