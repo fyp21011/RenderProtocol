@@ -275,9 +275,9 @@ class DeformableMeshesMessage(BaseMessage):
             self.frame_idx = frame_idx
             self.sdf = sdf
             self.pcd = pcd
-            if sdf != None and pcd != None:
+            if (sdf is not None) and (pcd is not None):
                 raise ValueError("PCD and SDF cannot be set together")
-            if sdf == pcd == None:
+            if (sdf is None) and (pcd is None):
                 raise ValueError("PCD and SDF cannot both be NONE")
         
         @classmethod
@@ -307,7 +307,7 @@ class DeformableMeshesMessage(BaseMessage):
             ------
             The generated DeformableMeshesMessage
             """
-            if self.pcd != None:
+            if self.pcd is not None:
                 o3d_mesh = DeformableMeshesMessage.Factory._face_reconstruction(self.pcd)
             else:
                 pass
