@@ -7,7 +7,7 @@ import numpy as np
 
 import open3d as o3d
 
-from .message import BaseMessage, ResponseMessage, MeshesMessage, PointCloudMessage
+from .message import BaseMessage, ResponseMessage, MeshesMessage, DeformableMeshesMessage
 
 class MeshChunksHandler:
     """ A middleware to merge chunks into its MeshesMessage
@@ -42,7 +42,7 @@ class MeshChunksHandler:
                 del self.mesh_name_2_msg[name]
                 if name.startswith("MPM::MESHES::"):
                     # a open3d re-constructed meshes from point cloud
-                    pcdMessage: PointCloudMessage = pickle.loads(meshmsg.mesh_file)
+                    pcdMessage: DeformableMeshesMessage = pickle.loads(meshmsg.mesh_file)
                     self.handler(pcdMessage)
                 else:
                     # a nomal meshes

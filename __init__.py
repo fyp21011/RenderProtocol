@@ -1,6 +1,6 @@
 from .message import (
     BaseMessage,
-    PointCloudMessage,
+    DeformableMeshesMessage,
     MeshesMessage,
     AddRigidBodyPrimitiveMessage,
     UpdateRigidBodyPoseMessage,
@@ -13,7 +13,7 @@ from .server_util import (
 
 __all__ = [
     'BaseMessage',
-    'PointCloudMessage',
+    'DeformableMeshesMessage',
     'MeshesMessage',
     'AddRigidBodyPrimitiveMessage',
     'UpdateRigidBodyPoseMessage',

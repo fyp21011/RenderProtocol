@@ -3,7 +3,7 @@ from abc import ABC
 import pickle
 import socket
 import threading
-from typing import Any, ByteString, List, Tuple, Union
+from typing import Any, ByteString, Dict, List, Tuple, Union
 import warnings
 
 import numpy as np
@@ -190,14 +190,14 @@ class MeshesMessage(BaseMessage):
         return bstr
     
 class AddRigidBodyPrimitiveMessage(BaseMessage):
+    """
+    Params
+    ------
+    primitive_name: the identifier of the primitive
+    typename_in_bpy: the corresponding typename in the BPY
+    params: the keyword parameters to create the primitive in the BPY
+    """
     def __init__(self, primitive_name:str, typename_in_bpy: str, **params: Any) -> None:
-        """
-        Params
-        ------
-        primitive_name: the identifier of the primitive
-        typename_in_bpy: the corresponding typename in the BPY
-        params: the keyword parameters to create the primitive in the BPY
-        """
         super().__init__()
         self.primitive_name = primitive_name
         self.primitive_type = typename_in_bpy
@@ -208,60 +208,114 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
         """
         return eval(self.primitive_type)(**self.params)
 
-class PointCloudMessage(BaseMessage):
-    _prev_frame_idx = None
+class DeformableMeshesMessage(BaseMessage):
+    """
+    It is DEPRECATED to directly initialize a 
+    DeformableMeshesMessage. An advisable way is to rely on
+    the DeformableMeshesMessage.Factory class to generate
+    the meshes from either pointcloud or sdf values.
+
+    Params
+    ------
+    name: the object name
+    frame_idx: the frame index at which the deformation is in effect
+    particles: a (N, 3) array storing meshes vertices
+    faces: a (M, 3) array, where each row is the vertex indices of one
+        triangle face in this meshes
+    """
+    _name_2_frame_idx: Dict[str, int] = {}
     _frame_lock = threading.RLock()
-    def __init__(self, particles: np.ndarray, name: str, frame_idx: int) -> None:
-        """ Set a point cloud
+
+    def __init__(self, name: str, frame_idx: int, particles: np.ndarray, faces: np.ndarray) -> None:
+        super().__init__()
+        self.obj_name = name
+        self.frame_idx = frame_idx
+        self.prev_frame_idx = None
+        """ the frame idx of the previous message
+        of the same object
+        """
+        self._update_frame_index()
+        self.particles = particles
+        self.faces = faces
+
+
+    def _update_frame_index(self) -> None:
+        """ Assign value to the `self.prev_frame_idx`
+
+        This is thread-safe. 
+        """
+        DeformableMeshesMessage._frame_lock.acquire()
+        try:
+            self.prev_frame_idx = DeformableMeshesMessage._name_2_frame_idx.get(self.obj_name, None)
+            DeformableMeshesMessage._name_2_frame_idx[self.obj_name] = self.frame_idx
+        finally:
+            DeformableMeshesMessage._frame_lock.release()
+
+    def send(self, retry_times=0):
+        # NOTE: the message will be wrapped in a MeshesMessage to send. You
+        # may refer to the README regarding why it is designed in this way
+        wrap_msg = MeshesMessage(f"MPM::MESHES::{self.obj_name}::{self.frame_idx}", pickle.dumps(self), None)
+        return wrap_msg.send(retry_times)
+
+    class Factory:
+        """ Factory of DeformableMeshesMessage, used to re-construct the
+        meshes from either pointcloud or signed distance function
 
         Params
         ------
-        particles: the surface particle of the point cloud
-        name: the name of the object simulated by this point cloud
-        frame_idx: the frame index
+        name: the object's name
+        frame_idx: the 
+        sdf: the SDF values
+        pcd: the point clouds
+
+        NOTE: either `pcd` or `sdf`, not both, not neither
         """
-        super().__init__()
-        self.obj_name  = name
-        self.frame_idx = frame_idx
-        self.prev_frame_idx = None
-        self.update_frame_index()
-        # build meshes from the particles
-        meshes = self.face_reconstruction(particles)
-        np_particles = np.asarray(meshes.vertices)
-        np_faces = np.asarray(meshes.triangles)
-        self.particles = [np_particles[i, :] for i in range(np_particles.shape[0])]
-        self.faces = [np_faces[i, :] for i in range(np_faces.shape[0])]
+        def __init__(self, name: str, frame_idx: int, sdf = None, pcd = None) -> None:
+            self.name = name
+            self.frame_idx = frame_idx
+            self.sdf = sdf
+            self.pcd = pcd
+            if (sdf is not None) and (pcd is not None):
+                raise ValueError("PCD and SDF cannot be set together")
+            if (sdf is None) and (pcd is None):
+                raise ValueError("PCD and SDF cannot both be NONE")
+        
+        @classmethod
+        def _face_reconstruction(cls, pcd: np.ndarray) -> o3d.geometry.TriangleMesh:
+            # step 1: build a o3d pcd
+            vertices = o3d.utility.Vector3dVector(pcd.reshape((-1, 3)))
+            point_cloud = o3d.geometry.PointCloud(vertices)
+            point_cloud.estimate_normals()
+            # step 2: average the distance to get the radius
+            distances = point_cloud.compute_nearest_neighbor_distance()
+            radius = np.mean(distances) * 1.5
+            meshes = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+                point_cloud, 
+                o3d.utility.DoubleVector([radius, radius * 2])
+            )
+            return meshes
+        
+        @property
+        def message(self) -> "DeformableMeshesMessage":
+            """ Generate the meshes and wrap it into a DeformableMeshesMessage
 
+            If `pcd` is set, the meshes will be re-constructed using ball
+            pivoting; otherwise, when the `sdf` is set, Open3D's RGBD
+            integration will be used to re-construct the meshes
 
-    def update_frame_index(self) -> None:
-        """ generate a global unique id for this message
-        """
-        PointCloudMessage._frame_lock.acquire()
-        try:
-            self.prev_frame_idx = PointCloudMessage._prev_frame_idx
-            PointCloudMessage._prev_frame_idx = self.frame_idx
-        finally:
-            PointCloudMessage._frame_lock.release()
-    
-    @staticmethod
-    def face_reconstruction(pcd: np.ndarray) -> o3d.geometry.TriangleMesh:
-        # step 1: build a o3d pcd
-        vertices = o3d.utility.Vector3dVector(pcd.reshape((-1, 3)))
-        point_cloud = o3d.geometry.PointCloud(vertices)
-        point_cloud.estimate_normals()
-        # step 2: average the distance to get the radius
-        distances = point_cloud.compute_nearest_neighbor_distance()
-        radius = np.mean(distances) * 1.5
-        meshes = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
-            point_cloud, 
-            o3d.utility.DoubleVector([radius, radius * 2])
-        )
-        return meshes
-
-
-    def send(self, retry_times=0):
-        wrap_msg = MeshesMessage(f"MPM::MESHES::{self.obj_name}::{self.frame_idx}", pickle.dumps(self), None)
-        return wrap_msg.send(retry_times)
+            Return
+            ------
+            The generated DeformableMeshesMessage
+            """
+            if self.pcd is not None:
+                o3d_mesh = DeformableMeshesMessage.Factory._face_reconstruction(self.pcd)
+            else:
+                pass
+            np_particles = np.asarray(o3d_mesh.vertices)
+            np_faces = np.asarray(o3d_mesh.triangles)
+            particles = [np_particles[i, :] for i in range(np_particles.shape[0])]
+            faces = [np_faces[i, :] for i in range(np_faces.shape[0])]
+            return DeformableMeshesMessage(self.name, self.frame_idx, particles, faces)
 
 class UpdateRigidBodyPoseMessage(BaseMessage):
     """
@@ -280,6 +334,17 @@ class UpdateRigidBodyPoseMessage(BaseMessage):
         self.frame_idx = frame_idx
 
 class FinishAnimationMessage(BaseMessage):
+    """The message marks the end of animation
+
+    The message will cease the renderer server, so no
+    more message can be sent after this message.
+
+    Params
+    ------
+    exp_name: the experiment name, which will be used
+        by the renderer as the file saving name
+    end_frame_idx: the end frame index of the animation
+    """
     def __init__(self, exp_name: str, end_frame_idx: int) -> None:
         super().__init__()
         self.end_frame_idx = end_frame_idx
