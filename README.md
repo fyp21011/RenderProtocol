@@ -16,6 +16,8 @@ Doing such is because since the PlasticineLab requires higher computation power,
 Install the following packages:
 - [ ] open3d
 - [ ] numpy
+- [ ] scipy
+- [ ] PyMCubes
 
 
 ## Messages

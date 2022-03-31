@@ -6,6 +6,7 @@ import threading
 from typing import Any, ByteString, Dict, List, Tuple, Union
 import warnings
 
+import mcubes
 import numpy as np
 import open3d as o3d
 
@@ -295,13 +296,17 @@ class DeformableMeshesMessage(BaseMessage):
             )
             return meshes
         
+        @classmethod
+        def _marching_cube(cls, sdf: np.ndarray):
+            return mcubes.marching_cubes(sdf, 0)
+        
         @property
         def message(self) -> "DeformableMeshesMessage":
             """ Generate the meshes and wrap it into a DeformableMeshesMessage
 
             If `pcd` is set, the meshes will be re-constructed using ball
-            pivoting; otherwise, when the `sdf` is set, Open3D's RGBD
-            integration will be used to re-construct the meshes
+            pivoting; otherwise, when the `sdf` is set, marching cube
+            method will be used to re-construct the meshes
 
             Return
             ------
@@ -309,10 +314,10 @@ class DeformableMeshesMessage(BaseMessage):
             """
             if self.pcd is not None:
                 o3d_mesh = DeformableMeshesMessage.Factory._face_reconstruction(self.pcd)
+                np_particles = np.asarray(o3d_mesh.vertices)
+                np_faces = np.asarray(o3d_mesh.triangles)
             else:
-                pass
-            np_particles = np.asarray(o3d_mesh.vertices)
-            np_faces = np.asarray(o3d_mesh.triangles)
+                np_particles, np_faces = DeformableMeshesMessage.Factory._marching_cube(self.sdf)
             particles = [np_particles[i, :] for i in range(np_particles.shape[0])]
             faces = [np_faces[i, :] for i in range(np_faces.shape[0])]
             return DeformableMeshesMessage(self.name, self.frame_idx, particles, faces)
