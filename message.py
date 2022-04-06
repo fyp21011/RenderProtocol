@@ -289,7 +289,7 @@ class DeformableMeshesMessage(BaseMessage):
             point_cloud.estimate_normals()
             # step 2: average the distance to get the radius
             distances = point_cloud.compute_nearest_neighbor_distance()
-            radius = np.mean(distances) * 1.5
+            radius = np.abs(np.mean(distances) * 1.5)
             meshes = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
                 point_cloud, 
                 o3d.utility.DoubleVector([radius, radius * 2])
