@@ -209,6 +209,23 @@ class AddRigidBodyPrimitiveMessage(BaseMessage):
         """
         return eval(self.primitive_type)(**self.params)
 
+class CollisionMessage(BaseMessage):
+    """The message marks a collision
+
+    The message notifies the visualizer of one collision
+    event, providing it with bodies involved in the 
+    collision and the frame index of the event. 
+
+    Params
+    ------
+    bodies: list of object names
+    frame_idx: the frame index of this event
+    """
+    def __init__(self, bodies: List[str], frame_idx: int) -> None:
+        super().__init__()
+        self.bodies = bodies
+        self.frame_idx = frame_idx
+
 class DeformableMeshesMessage(BaseMessage):
     """
     It is DEPRECATED to directly initialize a 
@@ -268,10 +285,14 @@ class DeformableMeshesMessage(BaseMessage):
         frame_idx: the 
         sdf: the SDF values
         pcd: the point clouds
-
+        scale: the scale of the meshes
+            For example, in PlasticineLab, the space is a cube of size 1, 
+            i.e. 0 <= x, y, z <= 1, whereas the resolution of SDF tensor
+            is 256. So the input SDF values are of shape (256, 256, 256).
+            Therefore, the scale should be set as (256, 256, 256). 
         NOTE: either `pcd` or `sdf`, not both, not neither
         """
-        def __init__(self, name: str, frame_idx: int, sdf = None, pcd = None) -> None:
+        def __init__(self, name: str, frame_idx: int, sdf = None, pcd = None, scale = (1, 1, 1)) -> None:
             self.name = name
             self.frame_idx = frame_idx
             self.sdf = sdf
@@ -280,6 +301,7 @@ class DeformableMeshesMessage(BaseMessage):
                 raise ValueError("PCD and SDF cannot be set together")
             if (sdf is None) and (pcd is None):
                 raise ValueError("PCD and SDF cannot both be NONE")
+            self.scale = np.array(scale)
         
         @classmethod
         def _face_reconstruction(cls, pcd: np.ndarray) -> o3d.geometry.TriangleMesh:
@@ -318,6 +340,7 @@ class DeformableMeshesMessage(BaseMessage):
                 np_faces = np.asarray(o3d_mesh.triangles)
             else:
                 np_particles, np_faces = DeformableMeshesMessage.Factory._marching_cube(self.sdf)
+                np_particles /= self.scale
             particles = [np_particles[i, :] for i in range(np_particles.shape[0])]
             faces = [np_faces[i, :] for i in range(np_faces.shape[0])]
             return DeformableMeshesMessage(self.name, self.frame_idx, particles, faces)
